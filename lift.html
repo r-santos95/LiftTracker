@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <title>LIFT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; background: #0a0a0f; color: #e8e8f0; font-family: 'DM Sans', sans-serif; overflow-x: hidden; }
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+    input, select, textarea { font-family: 'DM Sans', sans-serif; color: #e8e8f0; }
+    select option { background: #13131f; }
+    button { font-family: 'DM Sans', sans-serif; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+    .fadeUp { animation: fadeUp 0.35s ease both; }
+    #root { max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: env(safe-area-inset-bottom, 20px); }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ─── Defaults ─────────────────────────────────────────────────────────────────
+const DEFAULT_WORKOUTS = [
+  { id: "upper_a", name: "Upper A", subtitle: "Push Focus", exercises: [
+    { id: "bench",     name: "Barbell Bench Press",  sets: 4, repRange: "4–6"   },
+    { id: "row_a",    name: "Barbell Row",           sets: 4, repRange: "4–6"   },
+    { id: "ohp",      name: "Overhead Press",        sets: 3, repRange: "6–8"   },
+    { id: "lat_pull", name: "Lat Pulldown",          sets: 3, repRange: "8–10"  },
+    { id: "tri_push", name: "Tricep Pushdown",       sets: 3, repRange: "10–12" },
+    { id: "curl_a",   name: "Barbell Curl",          sets: 3, repRange: "10–12" },
+  ]},
+  { id: "lower", name: "Lower", subtitle: "Legs & Core", exercises: [
+    { id: "squat",     name: "Squat",               sets: 4, repRange: "4–6"   },
+    { id: "rdl",       name: "Romanian Deadlift",   sets: 4, repRange: "6–8"   },
+    { id: "leg_press", name: "Leg Press",           sets: 3, repRange: "8–10"  },
+    { id: "leg_curl",  name: "Leg Curl",            sets: 3, repRange: "10–12" },
+    { id: "calf",      name: "Calf Raise",          sets: 4, repRange: "12–15" },
+    { id: "abs",       name: "Ab Work",             sets: 3, repRange: "—"     },
+  ]},
+  { id: "upper_b", name: "Upper B", subtitle: "Pull Focus", exercises: [
+    { id: "inc_db",    name: "Incline Dumbbell Press", sets: 4, repRange: "6–8"   },
+    { id: "pullup",    name: "Weighted Pull-Up",       sets: 4, repRange: "4–6"   },
+    { id: "db_ohp",    name: "DB Shoulder Press",      sets: 3, repRange: "8–10"  },
+    { id: "cable_row", name: "Cable Row",              sets: 3, repRange: "8–10"  },
+    { id: "skull",     name: "Skull Crushers",         sets: 3, repRange: "10–12" },
+    { id: "hammer",    name: "Hammer Curl",            sets: 3, repRange: "10–12" },
+  ]},
+];
+const DEFAULT_PLAN = { id: "plan_default", name: "3-Day Strength", workoutIds: ["upper_a", "lower", "upper_b"] };
+const REST_DURATION = 120;
+
+// ─── Storage ──────────────────────────────────────────────────────────────────
+const load = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || "null") ?? fallback; } catch { return fallback; } };
+const save = (key, val) => localStorage.setItem(key, JSON.stringify(val));
+function uid() { return Math.random().toString(36).slice(2, 9); }
+function pad(n) { return String(n).padStart(2, "0"); }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const S = {
+  page: { paddingBottom: 52 },
+  homeHeader: { padding: "44px 20px 20px", borderBottom: "1px solid #ffffff08", display: "flex", justifyContent: "space-between", alignItems: "flex-end" },
+  logo: { fontFamily: "'Bebas Neue', sans-serif", fontSize: 46, letterSpacing: 6, lineHeight: 1, marginBottom: 4 },
+  planChip: { background: "none", border: "none", color: "#555", fontSize: 12, cursor: "pointer", letterSpacing: 0.5, padding: 0, textAlign: "left" },
+  headerBtn: { background: "#ffffff09", border: "1px solid #ffffff0e", borderRadius: 8, padding: "7px 12px", fontSize: 12, color: "#999", cursor: "pointer" },
+  dayGrid: { padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 },
+  dayCard: { background: "#13131f", border: "1px solid #ffffff0f", borderRadius: 14, padding: "18px 20px", textAlign: "left", cursor: "pointer", position: "relative", display: "block", width: "100%", paddingRight: 70 },
+  dayNum:  { fontSize: 10, letterSpacing: 3, color: "#333", textTransform: "uppercase", marginBottom: 4 },
+  dayName: { fontFamily: "'Bebas Neue', sans-serif", fontSize: 28, letterSpacing: 2, lineHeight: 1 },
+  daySub:  { fontSize: 12, color: "#555", marginTop: 3 },
+  dayMeta: { fontSize: 11, color: "#2e2e3e", marginTop: 8 },
+  savedBadge: { display: "inline-block", marginTop: 7, fontSize: 9, letterSpacing: 1, color: "#22c55e", background: "#22c55e14", borderRadius: 4, padding: "2px 7px", textTransform: "uppercase" },
+  arrow:   { position: "absolute", right: 18, top: "50%", transform: "translateY(-50%)", color: "#202030", fontSize: 18 },
+  editPill:{ position: "absolute", right: 14, top: 14, background: "#ffffff08", border: "1px solid #ffffff0a", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#444", cursor: "pointer" },
+  editPillSm: { background: "#ffffff08", border: "1px solid #ffffff0a", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#444", cursor: "pointer", flexShrink: 0 },
+  footer: { padding: "14px 24px 0", fontSize: 11, color: "#1e1e2e", textAlign: "center", lineHeight: 1.7 },
+  topBar: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", background: "#0a0a0f", position: "sticky", top: 0, zIndex: 10, borderBottom: "1px solid #ffffff08" },
+  backBtn: { fontSize: 13, color: "#555", background: "none", border: "none", cursor: "pointer", padding: "6px 0", minWidth: 48 },
+  topTitle: { fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 2 },
+  topAction: { fontSize: 13, color: "#22c55e", background: "none", border: "none", cursor: "pointer", fontWeight: 500, minWidth: 48, textAlign: "right" },
+  progressWrap: { height: 3, background: "#ffffff06", position: "relative" },
+  progressBar: { height: "100%", background: "#22c55e", transition: "width 0.4s ease" },
+  progressLabel: { position: "absolute", right: 14, top: 6, fontSize: 10, color: "#2a2a3a", letterSpacing: 1 },
+  timerWrap: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", margin: "10px 16px", borderRadius: 12, transition: "background 0.3s" },
+  timerLabel: { fontSize: 10, color: "#ffffff88", letterSpacing: 0.5, marginBottom: 2 },
+  timerCount: { fontFamily: "'Bebas Neue', sans-serif", fontSize: 32, letterSpacing: 2 },
+  timerX: { background: "#ffffff18", border: "none", color: "#fff", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14 },
+  exList: { padding: "8px 16px", display: "flex", flexDirection: "column", gap: 10 },
+  exCard: { background: "#13131f", border: "1px solid #ffffff0f", borderRadius: 12, padding: "14px", transition: "border-color 0.3s" },
+  exName: { fontSize: 15, fontWeight: 500 },
+  exMeta: { fontSize: 10, color: "#3a3a4a", letterSpacing: 0.5, marginTop: 2 },
+  setHead: { display: "grid", gridTemplateColumns: "26px 1fr 1fr 36px", gap: 6, marginBottom: 5 },
+  colLbl: { fontSize: 9, color: "#2a2a3a", letterSpacing: 1, textTransform: "uppercase" },
+  setRow: { display: "grid", gridTemplateColumns: "26px 1fr 1fr 36px", gap: 6, alignItems: "center", padding: "4px 0", borderRadius: 6, transition: "background 0.2s", marginBottom: 3 },
+  setNum: { fontSize: 12, color: "#3a3a4a", textAlign: "center" },
+  inp: { background: "#0a0a0f", border: "1px solid #ffffff10", borderRadius: 7, padding: "7px 6px", fontSize: 14, color: "#e8e8f0", width: "100%", textAlign: "center", outline: "none" },
+  chk: { width: 36, height: 34, borderRadius: 7, border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700 },
+  bigBtn: { display: "block", width: "calc(100% - 32px)", margin: "20px 16px 0", padding: "15px", background: "#22c55e", color: "#fff", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: "pointer" },
+  planCard: { background: "#13131f", border: "1px solid #ffffff0f", borderRadius: 12, padding: "14px 16px" },
+  planName: { fontFamily: "'Bebas Neue', sans-serif", fontSize: 22, letterSpacing: 1.5 },
+  planMeta: { fontSize: 12, color: "#444", marginTop: 3, lineHeight: 1.5 },
+  activeDot: { width: 8, height: 8, borderRadius: "50%", background: "#22c55e", flexShrink: 0 },
+  switchBtn: { marginTop: 12, padding: "9px 0", width: "100%", background: "#ffffff08", border: "1px solid #ffffff0f", borderRadius: 8, color: "#aaa", fontSize: 13, cursor: "pointer" },
+  fieldGroup: { display: "flex", flexDirection: "column", gap: 5 },
+  fieldLabel: { fontSize: 10, letterSpacing: 2, color: "#444", textTransform: "uppercase" },
+  fieldInput: { background: "#13131f", border: "1px solid #ffffff0f", borderRadius: 9, padding: "11px 13px", fontSize: 15, color: "#e8e8f0", outline: "none", width: "100%" },
+  ghostBtn: { background: "none", border: "none", color: "#a78bfa", fontSize: 13, cursor: "pointer" },
+  removeBtn: { background: "none", border: "none", color: "#333", fontSize: 14, cursor: "pointer" },
+  deleteBtn: { width: "100%", padding: "13px", background: "#ff000014", color: "#f87171", border: "1px solid #ff000028", borderRadius: 10, fontSize: 14, cursor: "pointer" },
+};
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen]     = useState("home");
+  const [workouts, setWorkouts] = useState(() => load("wt_workouts", DEFAULT_WORKOUTS));
+  const [plans, setPlans]       = useState(() => load("wt_plans", [DEFAULT_PLAN]));
+  const [activePlanId, setActivePlanId] = useState(() => load("wt_activePlan", DEFAULT_PLAN.id));
+  const [stored, setStored]     = useState(() => load("wt_v2", {}));
+  const [activeWorkoutId, setActiveWorkoutId] = useState(null);
+  const [session, setSession]   = useState({});
+  const [timer, setTimer]       = useState(null);
+  const timerRef                = useRef(null);
+  const [editWorkoutId, setEditWorkoutId] = useState(null);
+  const [editPlanId, setEditPlanId]       = useState(null);
+
+  const activePlan    = plans.find(p => p.id === activePlanId) ?? plans[0];
+  const planWorkouts  = (activePlan?.workoutIds ?? []).map(id => workouts.find(w => w.id === id)).filter(Boolean);
+
+  function persistWorkouts(w) { setWorkouts(w); save("wt_workouts", w); }
+  function persistPlans(p)    { setPlans(p);    save("wt_plans", p);    }
+  function switchPlan(id)     { setActivePlanId(id); save("wt_activePlan", id); }
+
+  function startWorkout(id) {
+    const workout = workouts.find(w => w.id === id);
+    const init = {};
+    workout.exercises.forEach(ex => {
+      const saved = stored[ex.id]?.lastWeight ?? "";
+      init[ex.id] = { sets: Array.from({ length: ex.sets }, () => ({ weight: saved, reps: "", done: false })) };
+    });
+    setSession(init); setActiveWorkoutId(id); setScreen("workout"); setTimer(null);
+  }
+
+  function finishWorkout() {
+    const workout = workouts.find(w => w.id === activeWorkoutId);
+    const ns = { ...stored };
+    workout.exercises.forEach(ex => {
+      const done = (session[ex.id]?.sets ?? []).filter(s => s.done && s.weight !== "");
+      if (done.length) ns[ex.id] = { lastWeight: done[done.length - 1].weight };
+    });
+    save("wt_v2", ns); setStored(ns);
+    setScreen("home"); setActiveWorkoutId(null); clearInterval(timerRef.current); setTimer(null);
+  }
+
+  function updateSet(exId, idx, field, val) {
+    setSession(prev => ({ ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map((s, i) => i === idx ? { ...s, [field]: val } : s) } }));
+  }
+
+  function toggleSetDone(exId, idx, exName) {
+    setSession(prev => {
+      const wasDone = prev[exId].sets[idx].done;
+      if (!wasDone) { clearInterval(timerRef.current); setTimer({ remaining: REST_DURATION, running: true, exerciseName: exName }); }
+      return { ...prev, [exId]: { ...prev[exId], sets: prev[exId].sets.map((s, i) => i === idx ? { ...s, done: !s.done } : s) } };
+    });
+  }
+
+  function dismissTimer() { clearInterval(timerRef.current); setTimer(null); }
+
+  useEffect(() => {
+    if (!timer?.running) return;
+    timerRef.current = setInterval(() => {
+      setTimer(prev => {
+        if (!prev) return null;
+        if (prev.remaining <= 1) { clearInterval(timerRef.current); return { ...prev, remaining: 0, running: false }; }
+        return { ...prev, remaining: prev.remaining - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [timer?.running, timer?.exerciseName]);
+
+  const activeWorkout = workouts.find(w => w.id === activeWorkoutId);
+  const totalSets = activeWorkout?.exercises.reduce((a, ex) => a + ex.sets, 0) ?? 0;
+  const doneSets  = Object.values(session).reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0);
+
+  function saveWorkout(w, planId, newPlanName) {
+    const exists = workouts.find(x => x.id === w.id);
+    const updated = exists ? workouts.map(x => x.id === w.id ? w : x) : [...workouts, w];
+    persistWorkouts(updated);
+    if (newPlanName) {
+      const np = { id: uid(), name: newPlanName, workoutIds: [w.id] };
+      persistPlans([...plans, np]); switchPlan(np.id);
+    } else if (planId) {
+      persistPlans(plans.map(p => p.id === planId && !p.workoutIds.includes(w.id) ? { ...p, workoutIds: [...p.workoutIds, w.id] } : p));
+    }
+    setScreen("home");
+  }
+
+  function deleteWorkout(id) {
+    persistWorkouts(workouts.filter(w => w.id !== id));
+    persistPlans(plans.map(p => ({ ...p, workoutIds: p.workoutIds.filter(wid => wid !== id) })));
+    setScreen("home");
+  }
+
+  function savePlan(p) {
+    const exists = plans.find(x => x.id === p.id);
+    persistPlans(exists ? plans.map(x => x.id === p.id ? p : x) : [...plans, p]);
+    setScreen("plans");
+  }
+
+  function deletePlan(id) {
+    const updated = plans.filter(p => p.id !== id);
+    persistPlans(updated);
+    if (activePlanId === id && updated.length) switchPlan(updated[0].id);
+    setScreen("plans");
+  }
+
+  return (
+    <div id="root">
+      {screen === "home" && (
+        <HomeScreen
+          plan={activePlan} planWorkouts={planWorkouts} stored={stored}
+          onStart={startWorkout}
+          onEditWorkout={id => { setEditWorkoutId(id); setScreen("editWorkout"); }}
+          onNewWorkout={() => { setEditWorkoutId(null); setScreen("editWorkout"); }}
+          onPlans={() => setScreen("plans")}
+        />
+      )}
+      {screen === "workout" && activeWorkout && (
+        <WorkoutScreen
+          workout={activeWorkout} session={session}
+          onUpdateSet={updateSet} onToggleDone={toggleSetDone}
+          onFinish={finishWorkout}
+          onBack={() => { setScreen("home"); clearInterval(timerRef.current); setTimer(null); }}
+          timer={timer} onDismissTimer={dismissTimer}
+          totalSets={totalSets} doneSets={doneSets}
+        />
+      )}
+      {screen === "editWorkout" && (
+        <EditWorkoutScreen
+          workout={editWorkoutId ? workouts.find(w => w.id === editWorkoutId) : null}
+          plans={plans}
+          onSave={saveWorkout} onDelete={deleteWorkout}
+          onBack={() => setScreen("home")}
+        />
+      )}
+      {screen === "plans" && (
+        <PlansScreen
+          plans={plans} workouts={workouts} activePlanId={activePlanId}
+          onSwitch={id => { switchPlan(id); setScreen("home"); }}
+          onEdit={id => { setEditPlanId(id); setScreen("editPlan"); }}
+          onNew={() => { setEditPlanId(null); setScreen("editPlan"); }}
+          onBack={() => setScreen("home")}
+        />
+      )}
+      {screen === "editPlan" && (
+        <EditPlanScreen
+          plan={editPlanId ? plans.find(p => p.id === editPlanId) : null}
+          workouts={workouts}
+          onSave={savePlan} onDelete={deletePlan}
+          onBack={() => setScreen("plans")}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Home ─────────────────────────────────────────────────────────────────────
+function HomeScreen({ plan, planWorkouts, stored, onStart, onEditWorkout, onNewWorkout, onPlans }) {
+  return (
+    <div style={S.page}>
+      <div style={S.homeHeader}>
+        <div>
+          <div style={S.logo}>LIFT</div>
+          <button style={S.planChip} onClick={onPlans}>
+            {plan?.name ?? "No Plan"} <span style={{ color: "#444" }}>▾</span>
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={S.headerBtn} onClick={onNewWorkout}>+ New</button>
+        </div>
+      </div>
+      <div style={S.dayGrid}>
+        {planWorkouts.map((w, i) => {
+          const hasData = w.exercises.some(ex => stored[ex.id]?.lastWeight);
+          return (
+            <div key={w.id} style={{ position: "relative", animationDelay: `${i * 0.07}s` }} className="fadeUp">
+              <button style={S.dayCard} onClick={() => onStart(w.id)}>
+                <div style={S.dayNum}>Workout {i + 1}</div>
+                <div style={S.dayName}>{w.name}</div>
+                {w.subtitle && <div style={S.daySub}>{w.subtitle}</div>}
+                <div style={S.dayMeta}>{w.exercises.length} exercises · {w.exercises.reduce((a, e) => a + e.sets, 0)} sets</div>
+                {hasData && <div style={S.savedBadge}>weights saved</div>}
+                <div style={S.arrow}>→</div>
+              </button>
+              <button style={S.editPill} onClick={e => { e.stopPropagation(); onEditWorkout(w.id); }}>Edit</button>
+            </div>
+          );
+        })}
+        {planWorkouts.length === 0 && (
+          <div style={{ textAlign: "center", padding: "48px 0", color: "#333", fontSize: 14, lineHeight: 2 }}>
+            No workouts in this plan.<br />
+            <span style={{ color: "#555" }}>Tap <b>+ New</b> to add one.</span>
+          </div>
+        )}
+      </div>
+      <div style={S.footer}>Rest 2–3 min on compounds · 60–90s accessories</div>
+    </div>
+  );
+}
+
+// ─── Plans ─────────────────────────────────────────────────────────────────────
+function PlansScreen({ plans, workouts, activePlanId, onSwitch, onEdit, onNew, onBack }) {
+  return (
+    <div style={S.page}>
+      <div style={S.topBar}>
+        <button style={S.backBtn} onClick={onBack}>← Back</button>
+        <div style={S.topTitle}>My Plans</div>
+        <button style={S.topAction} onClick={onNew}>+ New</button>
+      </div>
+      <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {plans.map(plan => {
+          const pw = plan.workoutIds.map(id => workouts.find(w => w.id === id)).filter(Boolean);
+          const isActive = plan.id === activePlanId;
+          return (
+            <div key={plan.id} style={{ ...S.planCard, borderColor: isActive ? "#22c55e55" : "#ffffff0f" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    {isActive && <span style={S.activeDot} />}
+                    <div style={S.planName}>{plan.name}</div>
+                  </div>
+                  <div style={S.planMeta}>{pw.length} workout{pw.length !== 1 ? "s" : ""}{pw.length > 0 ? ": " + pw.map(w => w.name).join(", ") : ""}</div>
+                </div>
+                <button style={S.editPillSm} onClick={() => onEdit(plan.id)}>Edit</button>
+              </div>
+              {isActive
+                ? <div style={{ fontSize: 11, color: "#22c55e", marginTop: 10 }}>✓ Active Plan</div>
+                : <button style={S.switchBtn} onClick={() => onSwitch(plan.id)}>Set Active</button>
+              }
+            </div>
+          );
+        })}
+        {plans.length === 0 && <div style={{ textAlign: "center", color: "#333", padding: "40px 0", fontSize: 14 }}>No plans yet.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Plan ────────────────────────────────────────────────────────────────
+function EditPlanScreen({ plan, workouts, onSave, onDelete, onBack }) {
+  const isNew = !plan;
+  const [name, setName]         = useState(plan?.name ?? "");
+  const [orderedIds, setOrderedIds] = useState(plan?.workoutIds ?? []);
+  const selected = new Set(orderedIds);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  function toggle(id) {
+    if (selected.has(id)) setOrderedIds(prev => prev.filter(x => x !== id));
+    else setOrderedIds(prev => [...prev, id]);
+  }
+
+  function handleSave() {
+    if (!name.trim()) return;
+    onSave({ id: plan?.id ?? uid(), name: name.trim(), workoutIds: orderedIds });
+  }
+
+  return (
+    <div style={S.page}>
+      <div style={S.topBar}>
+        <button style={S.backBtn} onClick={onBack}>← Back</button>
+        <div style={S.topTitle}>{isNew ? "New Plan" : "Edit Plan"}</div>
+        <button style={S.topAction} onClick={handleSave}>Save</button>
+      </div>
+      <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={S.fieldGroup}>
+          <label style={S.fieldLabel}>Plan Name</label>
+          <input style={S.fieldInput} placeholder="e.g. Hypertrophy Block" value={name} onChange={e => setName(e.target.value)} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: "#444", textTransform: "uppercase", marginBottom: 10 }}>Workouts</div>
+          {workouts.length === 0 && <div style={{ color: "#333", fontSize: 13 }}>No workouts yet.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {workouts.map(w => (
+              <div key={w.id}
+                style={{ ...S.planCard, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: selected.has(w.id) ? "#a78bfa55" : "#ffffff0a", cursor: "pointer" }}
+                onClick={() => toggle(w.id)}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 500 }}>{w.name}</div>
+                  {w.subtitle && <div style={{ fontSize: 11, color: "#555", marginTop: 2 }}>{w.subtitle}</div>}
+                </div>
+                <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${selected.has(w.id) ? "#a78bfa" : "#333"}`, background: selected.has(w.id) ? "#a78bfa" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0, color: "#fff" }}>
+                  {selected.has(w.id) && "✓"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {!isNew && (
+          <div style={{ marginTop: 8 }}>
+            {!confirmDelete
+              ? <button style={S.deleteBtn} onClick={() => setConfirmDelete(true)}>Delete Plan</button>
+              : <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...S.deleteBtn, flex: 1 }} onClick={() => onDelete(plan.id)}>Confirm Delete</button>
+                  <button style={{ ...S.deleteBtn, flex: 1, background: "#ffffff08", color: "#666" }} onClick={() => setConfirmDelete(false)}>Cancel</button>
+                </div>
+            }
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Workout session ──────────────────────────────────────────────────────────
+function WorkoutScreen({ workout, session, onUpdateSet, onToggleDone, onFinish, onBack, timer, onDismissTimer, totalSets, doneSets }) {
+  const prog = totalSets > 0 ? doneSets / totalSets : 0;
+  return (
+    <div style={S.page}>
+      <div style={S.topBar}>
+        <button style={S.backBtn} onClick={onBack}>← Back</button>
+        <div style={{ textAlign: "center" }}>
+          <div style={S.topTitle}>{workout.name}</div>
+          {workout.subtitle && <div style={{ fontSize: 10, color: "#444", letterSpacing: 1 }}>{workout.subtitle}</div>}
+        </div>
+        <button style={S.topAction} onClick={onFinish}>Done</button>
+      </div>
+      <div style={S.progressWrap}>
+        <div style={{ ...S.progressBar, width: `${prog * 100}%` }} />
+        <div style={S.progressLabel}>{doneSets}/{totalSets}</div>
+      </div>
+      {timer && <TimerBanner timer={timer} onDismiss={onDismissTimer} />}
+      <div style={S.exList}>
+        {workout.exercises.map(ex => (
+          <ExCard key={ex.id} exercise={ex} sets={session[ex.id]?.sets ?? []}
+            onUpdate={(i, f, v) => onUpdateSet(ex.id, i, f, v)}
+            onToggle={i => onToggleDone(ex.id, i, ex.name)} />
+        ))}
+      </div>
+      <button style={S.bigBtn} onClick={onFinish}>Finish Workout</button>
+    </div>
+  );
+}
+
+function TimerBanner({ timer, onDismiss }) {
+  const done = timer.remaining === 0;
+  return (
+    <div style={{ ...S.timerWrap, background: done ? "#22c55e" : "#1a1a2e" }}>
+      <div>
+        <div style={S.timerLabel}>{done ? "✓ Rest done!" : `Rest · ${timer.exerciseName}`}</div>
+        <div style={S.timerCount}>{pad(Math.floor(timer.remaining / 60))}:{pad(timer.remaining % 60)}</div>
+      </div>
+      <button style={S.timerX} onClick={onDismiss}>✕</button>
+    </div>
+  );
+}
+
+function ExCard({ exercise, sets, onUpdate, onToggle }) {
+  const allDone = sets.length > 0 && sets.every(s => s.done);
+  return (
+    <div style={{ ...S.exCard, borderColor: allDone ? "#22c55e44" : "#ffffff0f" }}>
+      <div style={{ marginBottom: 10 }}>
+        <div style={S.exName}>{exercise.name}</div>
+        <div style={S.exMeta}>{exercise.sets} sets · {exercise.repRange} reps</div>
+      </div>
+      <div style={S.setHead}>
+        <span style={S.colLbl}>SET</span>
+        <span style={S.colLbl}>WEIGHT</span>
+        <span style={S.colLbl}>REPS</span>
+        <span />
+      </div>
+      {sets.map((s, i) => (
+        <div key={i} style={{ ...S.setRow, background: s.done ? "#22c55e14" : "transparent" }}>
+          <span style={S.setNum}>{i + 1}</span>
+          <input style={S.inp} type="number" inputMode="decimal" placeholder="—" value={s.weight} onChange={e => onUpdate(i, "weight", e.target.value)} />
+          <input style={S.inp} type="number" inputMode="numeric" placeholder="—" value={s.reps}   onChange={e => onUpdate(i, "reps",   e.target.value)} />
+          <button style={{ ...S.chk, background: s.done ? "#22c55e" : "#ffffff14", color: s.done ? "#fff" : "#555" }} onClick={() => onToggle(i)}>✓</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Edit Workout ─────────────────────────────────────────────────────────────
+function EditWorkoutScreen({ workout, plans, onSave, onDelete, onBack }) {
+  const isNew = !workout;
+  const [name, setName]           = useState(workout?.name ?? "");
+  const [subtitle, setSubtitle]   = useState(workout?.subtitle ?? "");
+  const [exercises, setExercises] = useState(
+    workout?.exercises.map(e => ({ ...e, _k: uid() })) ?? [{ _k: uid(), id: uid(), name: "", sets: 3, repRange: "8–10" }]
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [targetPlanId, setTargetPlanId]   = useState(plans.find(p => p.workoutIds.includes(workout?.id))?.id ?? "none");
+  const [newPlanName, setNewPlanName]     = useState("");
+
+  function addEx()           { setExercises(p => [...p, { _k: uid(), id: uid(), name: "", sets: 3, repRange: "8–10" }]); }
+  function removeEx(k)       { setExercises(p => p.filter(e => e._k !== k)); }
+  function updateEx(k, f, v) { setExercises(p => p.map(e => e._k === k ? { ...e, [f]: f === "sets" ? (parseInt(v) || 1) : v } : e)); }
+
+  function handleSave() {
+    if (!name.trim()) return;
+    const w = { id: workout?.id ?? uid(), name: name.trim(), subtitle: subtitle.trim(), exercises: exercises.map(({ _k, ...r }) => ({ ...r, name: r.name || "Exercise" })) };
+    const planArg    = targetPlanId === "new" ? null : (targetPlanId !== "none" ? targetPlanId : null);
+    const newPlanArg = targetPlanId === "new" ? (newPlanName.trim() || "New Plan") : null;
+    onSave(w, planArg, newPlanArg);
+  }
+
+  return (
+    <div style={S.page}>
+      <div style={S.topBar}>
+        <button style={S.backBtn} onClick={onBack}>← Back</button>
+        <div style={S.topTitle}>{isNew ? "New Workout" : "Edit Workout"}</div>
+        <button style={S.topAction} onClick={handleSave}>Save</button>
+      </div>
+      <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={S.fieldGroup}>
+          <label style={S.fieldLabel}>Name</label>
+          <input style={S.fieldInput} placeholder="e.g. Upper A" value={name} onChange={e => setName(e.target.value)} />
+        </div>
+        <div style={S.fieldGroup}>
+          <label style={S.fieldLabel}>Subtitle (optional)</label>
+          <input style={S.fieldInput} placeholder="e.g. Push Focus" value={subtitle} onChange={e => setSubtitle(e.target.value)} />
+        </div>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={S.fieldLabel}>Exercises</span>
+            <button style={S.ghostBtn} onClick={addEx}>+ Add</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {exercises.map((ex, i) => (
+              <div key={ex._k} style={{ ...S.exCard, padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: "#333" }}>#{i + 1}</span>
+                  <button style={S.removeBtn} onClick={() => removeEx(ex._k)}>✕</button>
+                </div>
+                <input style={{ ...S.fieldInput, marginBottom: 8 }} placeholder="Exercise name" value={ex.name} onChange={e => updateEx(ex._k, "name", e.target.value)} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={S.fieldGroup}>
+                    <label style={S.fieldLabel}>Sets</label>
+                    <input style={S.fieldInput} type="number" inputMode="numeric" min={1} max={10} value={ex.sets} onChange={e => updateEx(ex._k, "sets", e.target.value)} />
+                  </div>
+                  <div style={S.fieldGroup}>
+                    <label style={S.fieldLabel}>Rep Range</label>
+                    <input style={S.fieldInput} placeholder="4–6" value={ex.repRange} onChange={e => updateEx(ex._k, "repRange", e.target.value)} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button style={{ ...S.ghostBtn, width: "100%", padding: "12px", background: "#ffffff06", borderRadius: 10, fontSize: 14, marginTop: 10 }} onClick={addEx}>+ Add Exercise</button>
+        </div>
+        <div style={S.fieldGroup}>
+          <label style={S.fieldLabel}>Add to plan</label>
+          <select style={{ ...S.fieldInput, appearance: "none" }} value={targetPlanId} onChange={e => { setTargetPlanId(e.target.value); setNewPlanName(""); }}>
+            <option value="none">No plan</option>
+            {plans.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value="new">+ Create new plan…</option>
+          </select>
+        </div>
+        {targetPlanId === "new" && (
+          <div style={S.fieldGroup}>
+            <label style={S.fieldLabel}>New Plan Name</label>
+            <input style={S.fieldInput} placeholder="e.g. Strength Block" value={newPlanName} onChange={e => setNewPlanName(e.target.value)} />
+          </div>
+        )}
+        {!isNew && (
+          <div style={{ marginTop: 8 }}>
+            {!confirmDelete
+              ? <button style={S.deleteBtn} onClick={() => setConfirmDelete(true)}>Delete Workout</button>
+              : <div style={{ display: "flex", gap: 8 }}>
+                  <button style={{ ...S.deleteBtn, flex: 1 }} onClick={() => onDelete(workout.id)}>Confirm Delete</button>
+                  <button style={{ ...S.deleteBtn, flex: 1, background: "#ffffff08", color: "#666" }} onClick={() => setConfirmDelete(false)}>Cancel</button>
+                </div>
+            }
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Mount ────────────────────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
